@@ -2,7 +2,7 @@
 
 **Advanced JavaScript Form Validation Library with i18n Support**
 
-Version 2.1.0 · MIT License · No dependencies
+Version 2.2.0 · MIT License · No dependencies
 
 ---
 
@@ -15,16 +15,17 @@ Version 2.1.0 · MIT License · No dependencies
 5. [Basic Usage](#basic-usage)
 6. [Schema Rules](#schema-rules)
 7. [Bind Options](#bind-options)
-8. [Locale / i18n](#locale--i18n)
-9. [Custom Rules](#custom-rules)
-10. [Headless Validation](#headless-validation)
-11. [Instance Methods](#instance-methods)
-12. [Static API](#static-api)
-13. [Error Message Customization](#error-message-customization)
-14. [CSS Reference](#css-reference)
-15. [Recommended HTML Structure](#recommended-html-structure)
-16. [Common Mistakes](#common-mistakes)
-17. [Changelog](#changelog)
+8. [Label-Prefixed Error Messages](#label-prefixed-error-messages)
+9. [Locale / i18n](#locale--i18n)
+10. [Custom Rules](#custom-rules)
+11. [Headless Validation](#headless-validation)
+12. [Instance Methods](#instance-methods)
+13. [Static API](#static-api)
+14. [Error Message Customization](#error-message-customization)
+15. [CSS Reference](#css-reference)
+16. [Recommended HTML Structure](#recommended-html-structure)
+17. [Common Mistakes](#common-mistakes)
+18. [Changelog](#changelog)
 
 ---
 
@@ -35,6 +36,7 @@ FormGuard is a lightweight, framework-agnostic form validation library that work
 - **25+ built-in validation rules** — email, URL, phone, credit card, password strength, and more
 - **Full i18n** — English built-in, additional languages loaded as separate files
 - **DOM binding** — attach to any `<form>` and errors appear automatically
+- **Label-prefixed errors** — optionally prefix every error with its field's label text for accessible, contextual messages
 - **Headless validation** — validate plain objects without any DOM
 - **Async rules** — return a `Promise` for API-backed checks
 - **UMD module** — works in browsers (script tag), Node.js (require), and AMD
@@ -294,6 +296,11 @@ guard.bind('#my-form', schema, {
   scrollToError:            true,      // scroll to first error on submit
   revalidateOnLocaleChange: false,     // re-run validation when locale switches
 
+  // Label-prefixed error messages (see section below)
+  labelMessage:             false,
+  labelMessageContainer:    '.form-group',
+  labelMessageSelector:     'label',
+
   onSuccess:      (data, result) => {},
   onError:        (errors, result) => {},
   onFieldValid:   (fieldName) => {},
@@ -311,6 +318,87 @@ guard.bind('#my-form', schema, {
 | `'change'` | Validate when the field value changes |
 
 > **Note:** `'blur'` internally uses the `focusout` DOM event (which bubbles), while `'input'` applies the debounce delay. You always write `validateOn: 'blur'` — FormGuard handles the browser difference automatically.
+
+---
+
+## Label-Prefixed Error Messages
+
+When `labelMessage: true` is set, every error message is automatically prefixed with the text of the field's associated `<label>`.
+
+**Format:** `{Label text} {original message}`
+
+**Example output:**
+
+```
+Address This field is required.
+Email Please enter a valid email address.
+Date of Birth Date must be on or after 1900-01-01.
+```
+
+### Enabling
+
+```js
+guard.bind('#my-form', schema, {
+  labelMessage: true,
+});
+```
+
+### How the label is found
+
+FormGuard walks up the DOM from the invalid field, finds the nearest ancestor matching `labelMessageContainer` (default `'.form-group'`), then queries for the first element matching `labelMessageSelector` (default `'label'`) inside that container.
+
+```html
+<!-- FormGuard walks up from <textarea> → finds .form-group → queries first <label> inside it -->
+<div class="form-group">
+  <label for="address">Address</label>
+  <textarea name="address"></textarea>
+  <!-- Error rendered as: "Address This field is required." -->
+</div>
+```
+
+Only direct text nodes of the label are used, so decorative child elements (like an asterisk wrapped in `<span aria-hidden="true">*</span>`) are automatically excluded.
+
+### Customizing the container selector
+
+Override `labelMessageContainer` to match your own markup:
+
+```js
+guard.bind('#my-form', schema, {
+  labelMessage:          true,
+  labelMessageContainer: '.field-wrapper',  // your wrapper class
+});
+```
+
+### Customizing the label selector
+
+Override `labelMessageSelector` to target a specific element or attribute:
+
+```js
+guard.bind('#my-form', schema, {
+  labelMessage:         true,
+  labelMessageSelector: '.field-label',         // a class
+  // labelMessageSelector: '[data-label]',       // a data attribute
+  // labelMessageSelector: 'label.primary',      // scoped selector
+});
+```
+
+### Mixing with inline message overrides
+
+`labelMessage` is applied **after** all other message resolution, so inline `{ruleName}Message` overrides are still respected and will also receive the label prefix:
+
+```js
+const schema = {
+  email: {
+    required:        true,
+    requiredMessage: 'is required to create your account.',
+    // With labelMessage: true → "Email is required to create your account."
+  },
+};
+```
+
+### Default behaviour (backward compatible)
+
+`labelMessage` defaults to `false`. All existing integrations are completely unaffected.
 
 ---
 
@@ -608,6 +696,12 @@ When a field fails, FormGuard inserts this immediately after the `<input>`:
 </div>
 ```
 
+With `labelMessage: true`, the span content becomes:
+
+```html
+<span class="fg-error-item">Username Must be at least 3 characters.</span>
+```
+
 - `role="alert"` ensures screen readers announce the error immediately
 - `data-fg-errors` is used internally to find and clean up messages
 
@@ -869,9 +963,41 @@ guard.bind('#form', {
 });
 ```
 
+### ❌ labelMessage with no .form-group wrapper
+
+```html
+<!-- Wrong — no .form-group ancestor, label will not be found -->
+<label for="address">Address</label>
+<textarea name="address"></textarea>
+
+<!-- Correct — field wrapped in .form-group (or your custom container) -->
+<div class="form-group">
+  <label for="address">Address</label>
+  <textarea name="address"></textarea>
+</div>
+```
+
+If your markup uses a different wrapper class, set `labelMessageContainer` accordingly:
+
+```js
+guard.bind('#form', schema, {
+  labelMessage:          true,
+  labelMessageContainer: '.my-field-wrapper',
+});
+```
+
 ---
 
 ## Changelog
+
+### v2.2.0
+- **Added:** `labelMessage` bind option — prefix error messages with the field's label text
+  - `labelMessage: false` (default) — fully backward compatible, no change in behaviour
+  - `labelMessage: true` — each error is prefixed: `"{Label text} {message}"`
+  - `labelMessageContainer` — CSS selector for the form-group wrapper (default: `'.form-group'`)
+  - `labelMessageSelector` — CSS selector for the label element inside the container (default: `'label'`)
+  - Label text is resolved from direct text nodes only, so child elements such as `<span aria-hidden="true">*</span>` are automatically stripped
+  - Label prefix is applied after all other message resolution (inline overrides, locale messages, custom rules) so all existing customisation still works
 
 ### v2.1.0
 - **Fixed:** `validateOn: 'blur'` now works correctly
