@@ -1,5 +1,5 @@
 /**
- * FormGuard.js v2.1
+ * FormGuard.js v2.2
  * Advanced Form Validation Library — English built-in, other locales load separately.
  * License: MIT
  */
@@ -140,6 +140,42 @@
         }
     }
 
+    /**
+     * Resolve the label text to prepend to an error message.
+     *
+     * Walk up the DOM from `fieldEl` until a `containerSelector` ancestor is
+     * found, then query for the first element matching `labelSelector` inside
+     * that container. Returns the trimmed text content, or an empty string if
+     * nothing is found (so the message falls back to its original form).
+     *
+     * @param {Element} fieldEl           - The invalid form field element.
+     * @param {string}  containerSelector - CSS selector for the form-group wrapper (e.g. '.form-group').
+     * @param {string}  labelSelector     - CSS selector for the label element (e.g. 'label').
+     * @returns {string}
+     */
+    function resolveLabelText(fieldEl, containerSelector, labelSelector) {
+        // Walk up the DOM looking for the container ancestor
+        let node = fieldEl.parentElement;
+        while (node && node !== document.body) {
+            if (node.matches(containerSelector)) {
+                const labelEl = node.querySelector(labelSelector);
+                if (labelEl) {
+                    // Return only the direct text — strip out child elements such as
+                    // asterisks wrapped in <span aria-hidden="true">*</span>
+                    const text = Array.from(labelEl.childNodes)
+                        .filter(n => n.nodeType === Node.TEXT_NODE)
+                        .map(n => n.textContent)
+                        .join('')
+                        .trim();
+                    return text || labelEl.textContent.trim();
+                }
+                return '';
+            }
+            node = node.parentElement;
+        }
+        return '';
+    }
+
     // ── FormInstance ─────────────────────────────────────────────────────────
     class FormInstance {
         constructor(form, schema, options, guard) {
@@ -155,6 +191,29 @@
                 errorContainerClass: 'fg-error-message',
                 scrollToError: true,
                 revalidateOnLocaleChange: false,
+
+                // ── Label-prefixed error messages ──────────────────────────
+                // When true, each error message is prefixed with the text of
+                // the associated <label> found inside the nearest
+                // labelMessageContainer ancestor.
+                //
+                // Format: "{Label text} {original message}"
+                // Example: "Address This field is required."
+                //
+                // Set to false (default) to preserve the original behaviour.
+                labelMessage: false,
+
+                // CSS selector used to locate the form-group wrapper when
+                // walking up the DOM from the invalid field.
+                // Override to match your own markup (e.g. '.field-wrapper').
+                labelMessageContainer: '.form-group',
+
+                // CSS selector for the label element queried *inside* the
+                // located container. Defaults to the first <label>, but can
+                // be narrowed to a class or data attribute as needed
+                // (e.g. '.field-label', '[data-label]').
+                labelMessageSelector: 'label',
+
                 onSuccess: null,
                 onError: null,
                 onFieldValid: null,
@@ -223,6 +282,25 @@
             return data;
         }
 
+        /**
+         * Optionally prefix an error message with its associated label text.
+         * Returns the message unchanged when labelMessage is disabled or when
+         * no label can be found.
+         *
+         * @param {string}  message - The original validation error message.
+         * @param {Element} fieldEl - The form field element being validated.
+         * @returns {string}
+         */
+        _prefixWithLabel(message, fieldEl) {
+            if (!this.options.labelMessage || !fieldEl) return message;
+            const labelText = resolveLabelText(
+                fieldEl,
+                this.options.labelMessageContainer,
+                this.options.labelMessageSelector
+            );
+            return labelText ? labelText + ' ' + message : message;
+        }
+
         _applyState(name, errors) {
             const { errorClass: ec, validClass: vc, errorContainerClass: ecc } = this.options;
             const el = this.form.querySelector('[name="' + name + '"]');
@@ -239,7 +317,9 @@
                     box.setAttribute('role', 'alert');
                     el.parentNode.insertBefore(box, el.nextSibling);
                 }
-                box.innerHTML = errors.map(e => '<span class="fg-error-item">' + e.message + '</span>').join('');
+                box.innerHTML = errors
+                    .map(e => '<span class="fg-error-item">' + this._prefixWithLabel(e.message, el) + '</span>')
+                    .join('');
                 this.options.onFieldInvalid && this.options.onFieldInvalid(name, errors);
             } else {
                 el.classList.add(vc);
